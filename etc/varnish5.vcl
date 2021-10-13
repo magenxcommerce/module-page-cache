@@ -87,16 +87,15 @@ sub vcl_recv {
         } elsif (req.http.Accept-Encoding ~ "deflate" && req.http.user-agent !~ "MSIE") {
             set req.http.Accept-Encoding = "deflate";
         } else {
-            # unknown algorithm
+            # unkown algorithm
             unset req.http.Accept-Encoding;
         }
     }
 
-    # Remove all marketing get parameters to minimize the cache objects
-    if (req.url ~ "(\?|&)(gclid|cx|ie|cof|siteurl|zanpid|origin|fbclid|mc_[a-z]+|utm_[a-z]+|_bta_[a-z]+)=") {
-        set req.url = regsuball(req.url, "(gclid|cx|ie|cof|siteurl|zanpid|origin|fbclid|mc_[a-z]+|utm_[a-z]+|_bta_[a-z]+)=[-_A-z0-9+()%.]+&?", "");
-        set req.url = regsub(req.url, "[?|&]+$", "");
-    }
+    # Remove Google gclid parameters to minimize the cache objects
+    set req.url = regsuball(req.url,"\?gclid=[^&]+$",""); # strips when QS = "?gclid=AAA"
+    set req.url = regsuball(req.url,"\?gclid=[^&]+&","?"); # strips when QS = "?gclid=AAA&foo=bar"
+    set req.url = regsuball(req.url,"&gclid=[^&]+",""); # strips when QS = "?foo=bar&gclid=AAA" or QS = "?foo=bar&gclid=AAA&bar=baz"
 
     # Static files caching
     if (req.url ~ "^/(pub/)?(media|static)/") {
@@ -107,11 +106,6 @@ sub vcl_recv {
         #unset req.http.Https;
         #unset req.http./* {{ ssl_offloaded_header }} */;
         #unset req.http.Cookie;
-    }
-
-    # Authenticated GraphQL requests should not be cached by default
-    if (req.url ~ "/graphql" && req.http.Authorization ~ "^Bearer") {
-        return (pass);
     }
 
     return (hash);
@@ -134,19 +128,6 @@ sub vcl_hash {
         hash_data(req.http./* {{ ssl_offloaded_header }} */);
     }
     /* {{ design_exceptions_code }} */
-
-    if (req.url ~ "/graphql") {
-        call process_graphql_headers;
-    }
-}
-
-sub process_graphql_headers {
-    if (req.http.Store) {
-        hash_data(req.http.Store);
-    }
-    if (req.http.Content-Currency) {
-        hash_data(req.http.Content-Currency);
-    }
 }
 
 sub vcl_backend_response {
